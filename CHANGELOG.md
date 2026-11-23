@@ -9,6 +9,7 @@ What each tagged release changes. Read the entry before you `git pull`, so you k
 - **Doctrine and templates**: making the CI check required now depends on your GitHub plan offering branch protection, with the guardrail's merge check as the backstop; the read-only data condition is about whichever Supabase connection is used near production; the CI template says what it assumes.
 - **Leak gate** (`scripts/leak-check.sh`, for maintainers): the terms file is no longer shipped. Supply your own with `LEAK_TERMS` or `--scan FILE`; without one the scan refuses to run. It now also scans commit history, and `LEAK_SKIP_HISTORY=1` skips that part with a warning.
 - **Leak gate**: the publisher identity may author commits. Commits listed by full hash in the script have their author and committer lines skipped, for an exposure that is already public on `main` and cannot be removed without a force-push. CI runs the self-test, which now covers both.
+- **Leak gate**: a GitHub no-reply address (`...@users.noreply.github.com`) is allowed on author and committer lines, because GitHub writes it as committer on every web merge. Messages are still scanned in full.
 
 ## v0.1.0 (2026-11-23)
 
