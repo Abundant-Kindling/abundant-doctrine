@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Test stand-in for the claude CLI: records its arguments, changes nothing.
+printf '%s\n' "$*" >> "${STUB_LOG:-/dev/null}"
+exit 0

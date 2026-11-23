@@ -1,0 +1,64 @@
+# Copy this file to .github/workflows/ci.yml in your app.
+#
+# It runs lint, a type check and a production build on every pull request and
+# on every push to main (the push run is what makes the check exist on main,
+# so branch protection can require it).
+#
+# After the first run, ask the repo owner to make the "check" job a required
+# status check if their GitHub plan offers branch protection on this repo;
+# otherwise the guardrail's merge check is the backstop.
+#
+# Node version: read from `engines.node` in package.json, falling back to 24
+# when it is not set. Vercel reads the same field, so CI and the deploy cannot
+# drift. Set `engines.node` in your app.
+#
+# It assumes npm with a committed package-lock.json (npm ci and the cache need
+# it) and a "lint" script in package.json. Adjust those steps if your app
+# differs.
+#
+# The type-check step assumes TypeScript. Remove it in a JavaScript-only app.
+#
+# If the build needs environment variables, add placeholder values under `env:`
+# on the build step. Never put a real secret in this file.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Node version
+        id: node
+        run: echo "v=$(node -p "(require('./package.json').engines||{}).node||'24'")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node.outputs.v }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
