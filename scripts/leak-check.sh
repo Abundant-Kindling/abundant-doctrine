@@ -105,12 +105,16 @@ EOF
     }
     # The publisher identity may author commits: the attribution name and its
     # public mailbox, on author and committer lines only, never in messages.
-    # Built from pieces so this file does not contain them.
+    # Built from pieces so this file does not contain them. A GitHub no-reply
+    # address (ID+username@users.noreply.github.com, or the older
+    # username@users.noreply.github.com) is also allowed on those lines: GitHub
+    # writes it as committer on every web merge, and it holds only the public
+    # username.
     pub_email=$(printf 'hello@%s%s.com.au' "abundant" "kindling")
     hist=$(printf '%s\n' "$hist" | awk -v n="$restricted_lc" -v e="$pub_email" \
       -v ac=" $allowed_identity_commits " '
       /^@@/ { h = substr($0, 3); s = substr(h, 1, 7); ok = index(ac, " " h " ") > 0; next }
-      /^@A/ { v = tolower(substr($0, 3)); if (v == n || v == e || ok) next; print s "\t" substr($0, 3); next }
+      /^@A/ { v = tolower(substr($0, 3)); if (v == n || v == e || ok || v ~ /^([0-9]+[+])?[a-z0-9-]+@users[.]noreply[.]github[.]com$/) next; print s "\t" substr($0, 3); next }
       { if (ok && tolower($0) == "co-authored-by: " n " <" e ">") next; print s "\t" $0 }')
     if [ -n "$hist" ]; then
       while IFS= read -r term; do
@@ -217,6 +221,18 @@ self_test() {
     commit -q --no-verify --allow-empty -m "publisher commit" || return 2
   expect 0 "publisher identity as author and committer" -- scan "$d" "$pub_terms" || return 1
 
+  # GitHub's no-reply address may be the committer (it is, on a web merge), and
+  # a lookalike that merely starts the same way may not.
+  GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL="1+$first@users.noreply.github.com" \
+    git -C "$d" -c user.name="$pub_name" -c user.email="$pub_mail" -c commit.gpgsign=false \
+    commit -q --no-verify --allow-empty -m "web merge" || return 2
+  expect 0 "GitHub no-reply address as committer" -- scan "$d" "$terms" || return 1
+  GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL="1+x@users.noreply.github.com.$first.example" \
+    git -C "$d" -c user.name="$pub_name" -c user.email="$pub_mail" -c commit.gpgsign=false \
+    commit -q --no-verify --allow-empty -m "lookalike" || return 2
+  expect 1 "lookalike of a no-reply address" -- scan "$d" "$terms" || return 1
+  allowed_identity_commits=$(git -C "$d" rev-parse HEAD)
+
   # A commit authored with a term, carrying the publisher co-author line, fails
   # until its full hash is listed; listing it clears only those lines.
   git -C "$d" -c user.name=x -c user.email="x@$first.example" -c commit.gpgsign=false \
@@ -224,7 +240,7 @@ self_test() {
     -m "squash merge" -m "Co-authored-by: $pub_name <$pub_mail>" || return 2
   expect 1 "term in an author email" -- scan "$d" "$terms" || return 1
   expect 1 "publisher co-author line in a message" -- scan "$d" "$pub_terms" || return 1
-  allowed_identity_commits=$(git -C "$d" rev-parse HEAD)
+  allowed_identity_commits="$allowed_identity_commits $(git -C "$d" rev-parse HEAD)"
   expect 0 "listed commit: author email not scanned" -- scan "$d" "$terms" || return 1
   expect 0 "listed commit: publisher co-author line allowed" -- scan "$d" "$pub_terms" || return 1
   # It stays listed, so the history hits below come from their own commits.
@@ -248,7 +264,7 @@ self_test() {
   find "$d/.git" -delete
   expect 2 "not a git repo" -- scan "$d" "$terms" || return 1
 
-  echo "self-test: planted file hit, commit-message hit and author-email hit caught (exit 1); publisher identity and listed commits pass (exit 0); clean tree passes (exit 0); LEAK_SKIP_HISTORY=1 warns and still catches file hits; missing/empty/blank/unreadable terms, nested folder, unreadable file and non-repo fail closed (exit 2)"
+  echo "self-test: planted file hit, commit-message hit and author-email hit caught (exit 1); publisher identity, GitHub no-reply committer and listed commits pass (exit 0), a no-reply lookalike does not; clean tree passes (exit 0); LEAK_SKIP_HISTORY=1 warns and still catches file hits; missing/empty/blank/unreadable terms, nested folder, unreadable file and non-repo fail closed (exit 2)"
 }
 
 case "${1:-}" in
