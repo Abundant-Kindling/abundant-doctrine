@@ -1,0 +1,72 @@
+# CI for the kit itself (an app copies templates/ci.yml instead).
+#
+# Runs every test script on Linux and on macOS. The macOS runner matters: its
+# system bash is 3.2 with BSD tools, which is what the installer meets on a Mac.
+# shellcheck runs once, on Linux, where it is preinstalled.
+#
+# The leak gate's real scan needs the private terms file, so CI runs only its
+# self-test. Maintainers run the real scan locally before publishing.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Use the system bash 3.2 on macOS
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/sysbash"
+          ln -s /bin/bash "$RUNNER_TEMP/sysbash/bash"
+          echo "$RUNNER_TEMP/sysbash" >> "$GITHUB_PATH"
+
+      - name: Show bash version
+        run: bash --version | head -1
+
+      - name: Git identity for test repos
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+          git config --global init.defaultBranch main
+
+      - name: Guardrail cases
+        run: node hooks/careful.test.js
+
+      - name: Guardrail git cases
+        run: bash hooks/careful.git.test.sh
+
+      - name: Installer
+        run: bash tests/install.test.sh
+
+      - name: Docs
+        run: bash tests/docs.test.sh
+
+      - name: Leak gate self-test
+        run: bash scripts/leak-check.sh --self-test
+
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck install.sh uninstall.sh scripts/*.sh tests/*.sh hooks/*.sh tests/stubs/*

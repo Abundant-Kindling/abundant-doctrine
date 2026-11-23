@@ -191,8 +191,17 @@ It runs before every Bash command and every Supabase `execute_sql` or `apply_mig
 - the Supabase branch tools (merging, resetting or deleting a branch), and every other non-SQL MCP tool, including the Vercel plugin's
 - anything done in a web dashboard: GitHub's merge button, Supabase's SQL editor, Vercel's promote button
 - file edits Claude makes directly, which are not shell commands
+- a push whose branch name is in quotes (`git push origin "main"`)
+- a commit on `main` when the command starts by setting a variable (`GIT_AUTHOR_NAME=x git commit ...`)
 
-It errs toward asking, so it sometimes refuses a harmless line, such as a commit message that quotes one of the commands above.
+**What it refuses that is harmless.** It errs toward asking, and it reads the whole command line, including commit messages, PR titles and search patterns. Expect it to refuse ordinary lines like these:
+
+- `git commit -m "Truncate titles, add tooltip"`
+- `git commit -m "Fix delete from cart"`
+- `git commit -m "Drop table borders on mobile"`
+- `grep -rn "DELETE FROM x" src`
+
+The words that set it off are the SQL ones above (truncate, delete from, drop table and the rest), wherever they appear. When it refuses one of these, read the reason it gives. If the line is harmless, ask Claude to reword it ("Shorten titles", "Fix removing items from the cart"), or run it yourself. Do not get into the habit of approving refusals without reading them: that habit is what lets the real one through.
 
 If it refuses something often that is fine for you, say so in your `personal.md` rather than removing it. A guardrail you turn off protects nothing.
 
@@ -209,6 +218,8 @@ End each session with `/wrap`.
 ## Maintaining the kit
 
 Before publishing a change to the kit itself, run the leak gate: `bash scripts/leak-check.sh --self-test`, then `LEAK_TERMS=/path/to/terms.txt bash scripts/leak-check.sh`. It scans every file and the commit history (author and committer names and emails, and messages) for the terms you list. The terms file is not shipped, because the terms would leak: maintainers supply their own private one, kept outside the repo. Without it the scan refuses to run.
+
+CI (`.github/workflows/ci.yml`) runs every test script on Linux and on macOS with the system bash 3.2, plus shellcheck and the leak gate's self-test, on each pull request and each push to `main`. The real leak scan needs the private terms file, so it stays a local step.
 
 ## Licence
 
