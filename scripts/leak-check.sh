@@ -161,7 +161,7 @@ self_test() {
       return 1
     fi
   }
-  # shellcheck disable=SC2317 # called indirectly, through expect
+  # shellcheck disable=SC2317,SC2329 # called indirectly, through expect
   scan_skip_history() { LEAK_SKIP_HISTORY=1 scan "$@"; }
 
   expect 0 "clean copy" -- scan "$d" "$terms" || return 1

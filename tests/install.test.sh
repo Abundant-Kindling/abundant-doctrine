@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Functions here are called through check and trap, which shellcheck cannot see.
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 # Tests for install.sh and uninstall.sh.
 #
 #   bash tests/install.test.sh
