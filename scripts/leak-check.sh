@@ -27,6 +27,14 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # attribution line). Built from two pieces so this file does not contain it.
 restricted_lc=$(printf '%s %s' "abundant" "kindling")
 
+# Commits whose author and committer lines are not scanned, and whose message
+# may carry the publisher's co-author line, listed by full hash. Each one is a
+# known, already-public exposure that cannot be removed from main without a
+# force-push. Everything else in these commits is still scanned.
+#   a364ddd...: the squash merge of PR #1, which GitHub authored with the
+#   merger's own account email (23 Nov 2026).
+allowed_identity_commits="a364ddd37140218d19f1db0b240192a808fe95b7"
+
 # scan ROOT TERMS_FILE
 scan() {
   local root=$1 terms=$2 hits=0 file term line text term_lc files out grc top
@@ -91,7 +99,7 @@ EOF
     } >&2
   else
     # Each line is prefixed with its commit, so a hit names where it is.
-    hist=$(git log --all --format='@@%h%n@A%an%n@A%ae%n@A%cn%n@A%ce%n%B' 2>/dev/null) || {
+    hist=$(git log --all --format='@@%H%n@A%an%n@A%ae%n@A%cn%n@A%ce%n%B' 2>/dev/null) || {
       echo "leak-check: could not read commit history" >&2
       return 2
     }
@@ -99,10 +107,11 @@ EOF
     # public mailbox, on author and committer lines only, never in messages.
     # Built from pieces so this file does not contain them.
     pub_email=$(printf 'hello@%s%s.com.au' "abundant" "kindling")
-    hist=$(printf '%s\n' "$hist" | awk -v n="$restricted_lc" -v e="$pub_email" '
-      /^@@/ { h = substr($0, 3); next }
-      /^@A/ { v = tolower(substr($0, 3)); if (v == n || v == e) next; print h "\t" substr($0, 3); next }
-      { print h "\t" $0 }')
+    hist=$(printf '%s\n' "$hist" | awk -v n="$restricted_lc" -v e="$pub_email" \
+      -v ac=" $allowed_identity_commits " '
+      /^@@/ { h = substr($0, 3); s = substr(h, 1, 7); ok = index(ac, " " h " ") > 0; next }
+      /^@A/ { v = tolower(substr($0, 3)); if (v == n || v == e || ok) next; print s "\t" substr($0, 3); next }
+      { if (ok && tolower($0) == "co-authored-by: " n " <" e ">") next; print s "\t" $0 }')
     if [ -n "$hist" ]; then
       while IFS= read -r term; do
         [ -n "$term" ] || continue
@@ -199,6 +208,27 @@ self_test() {
     find "$d/locked.txt" -delete
   fi
 
+  # The publisher identity may author a commit.
+  pub_terms="$base/pub-terms.txt"
+  printf '%s\n%s%s\n' "$restricted_lc" "abundant" "kindling" > "$pub_terms"
+  pub_name=$(printf 'Abundant %s' "Kindling")
+  pub_mail=$(printf 'hello@%s%s.com.au' "abundant" "kindling")
+  git -C "$d" -c user.name="$pub_name" -c user.email="$pub_mail" -c commit.gpgsign=false \
+    commit -q --no-verify --allow-empty -m "publisher commit" || return 2
+  expect 0 "publisher identity as author and committer" -- scan "$d" "$pub_terms" || return 1
+
+  # A commit authored with a term, carrying the publisher co-author line, fails
+  # until its full hash is listed; listing it clears only those lines.
+  git -C "$d" -c user.name=x -c user.email="x@$first.example" -c commit.gpgsign=false \
+    commit -q --no-verify --allow-empty \
+    -m "squash merge" -m "Co-authored-by: $pub_name <$pub_mail>" || return 2
+  expect 1 "term in an author email" -- scan "$d" "$terms" || return 1
+  expect 1 "publisher co-author line in a message" -- scan "$d" "$pub_terms" || return 1
+  allowed_identity_commits=$(git -C "$d" rev-parse HEAD)
+  expect 0 "listed commit: author email not scanned" -- scan "$d" "$terms" || return 1
+  expect 0 "listed commit: publisher co-author line allowed" -- scan "$d" "$pub_terms" || return 1
+  # It stays listed, so the history hits below come from their own commits.
+
   # History: a term in a commit message fails the scan though no file has it.
   gitc commit -q --no-verify --allow-empty -m "mentions $first in history" || return 2
   expect 1 "term in a commit message" -- scan "$d" "$terms" || return 1
@@ -218,7 +248,7 @@ self_test() {
   find "$d/.git" -delete
   expect 2 "not a git repo" -- scan "$d" "$terms" || return 1
 
-  echo "self-test: planted file hit and commit-message hit caught (exit 1); clean tree passes (exit 0); LEAK_SKIP_HISTORY=1 warns and still catches file hits; missing/empty/blank/unreadable terms, nested folder, unreadable file and non-repo fail closed (exit 2)"
+  echo "self-test: planted file hit, commit-message hit and author-email hit caught (exit 1); publisher identity and listed commits pass (exit 0); clean tree passes (exit 0); LEAK_SKIP_HISTORY=1 warns and still catches file hits; missing/empty/blank/unreadable terms, nested folder, unreadable file and non-repo fail closed (exit 2)"
 }
 
 case "${1:-}" in
